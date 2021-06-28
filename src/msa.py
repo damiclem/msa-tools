@@ -105,18 +105,40 @@ class MSA(object):
         # Compute occupancy as fraction of non-gap aligned residues
         return num / den
 
-    # Implement conservation as kullback-leibler divergence
-    def get_conservation(self):
-        # Get frequencies of alignment
-        frequencies = self.get_frequencies()
+    def get_conservation(self, b=2):
+        return self.get_kl_divergence(b=b)
+
+    def get_kl_divergence(self, b=2):
+        # Get alignment shape
+        _, m = self.shape
         # Initialize Kullback-Leibler divergence
+        conservation = np.zeros(shape=(m, ), dtype=np.float)
+        # Get observed and expected amino-acid frequencies
+        observed, expected = self.get_frequencies(), self.frequencies
+        # Loop trhough each amino acid
+        for i, residue_code in enumerate(self.ALL_RESIDUES):
+            # Get current odds, exclude cases where logarithm is zero
+            odds = np.where(observed[i, :] > 0, observed[i, :] / expected[residue_code], 1)
+            # Update conservation
+            conservation += np.log(odds) / np.log(b)
+        # Return Kullback-Leibler divergence
+        return conservation
+
+    def get_shannon_entropy(self, b=2):
+        # Get alignment shape
+        _, m = self.shape
+        # Get observed amino-acid frequencies
+        observed = self.get_frequencies()
+        # Initialize Shannon's entropy
         conservation = np.zeros(shape=(m, ), dtype=np.float)
         # Loop trhough each amino acid
         for i, _ in enumerate(self.ALL_RESIDUES):
+            # Compute logarithm multiplier
+            frequencies = np.where(observed[i, :] > 0, observed[i, :], 1)
             # Update conservation
-            conservation[i, :] = frequencies[i, :] / self.frequencies[i]
+            conservation -= frequencies * (np.log(frequencies) / np.log(b))
         # Return Kullback-Leibler divergence
-        return conservation.sum(axis=0)
+        return conservation
 
     def get_logo(self):
         # Get number of reisdues

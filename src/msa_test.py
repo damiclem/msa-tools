@@ -101,17 +101,31 @@ class TestMSA(unittest.TestCase):
         self.assertEqual(occupancy[8], 2/3, 'It should be equal to 0.33')
         self.assertEqual(occupancy[-1], 1/3, 'It should be equal to 0.66')
 
-    # Test conservation on small sample alignment
-    def test_get_conservation_small(self):
+    # Test KL divergence on small sample alignment
+    def test_get_kl_divergence_small(self):
         # Get sample alignment
         msa = self.small_msa
         # Compute conservation
-        conservation = msa.get_conservation()
+        conservation = msa.get_kl_divergence(b=np.e)
         # Get conservation shape
         m = len(conservation)
         # Test conservation
         self.assertEqual(m, 11, 'There should be 11 aligned positions')
-        self.assertAlmostEqual(conservation[2], 5.781, 'Should be equal to `5.781`')
+        self.assertAlmostEqual(conservation[2], 5.812, 3, 'Should be equal to 5.781')
+        self.assertAlmostEqual(conservation[8], 3.395, 3, 'Should be equal to 3.395')
+
+    # Test Shannon entropy on small sample alignment
+    def test_get_shannon_entropy(self):
+        # Get sample alignment
+        msa = self.small_msa
+        # Compute conservation
+        conservation = msa.get_shannon_entropy(b=np.e)
+        # Get conservation shape
+        m = len(conservation)
+        # Test conservation
+        self.assertEqual(m, 11, 'There should be 11 aligned positions')
+        self.assertAlmostEqual(conservation[2], 1.099, 3, 'Should be equal to 1.099')
+        self.assertAlmostEqual(conservation[8], 0.732, 3, 'Should be equal to 0.732')
 
 if __name__ == '__main__':
     # Execute tests
