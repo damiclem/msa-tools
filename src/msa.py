@@ -120,7 +120,7 @@ class MSA(object):
             # Get current odds, exclude cases where logarithm is zero
             odds = np.where(observed[i, :] > 0, observed[i, :] / expected[residue_code], 1)
             # Update conservation
-            conservation += np.log(odds) / np.log(b)
+            conservation += observed[i, :] * (np.log(odds) / np.log(b))
         # Return Kullback-Leibler divergence
         return conservation
 
