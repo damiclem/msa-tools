@@ -106,13 +106,13 @@ class TestMSA(unittest.TestCase):
         # Get sample alignment
         msa = self.small_msa
         # Compute conservation
-        conservation = msa.get_kl_divergence(b=np.e)
+        conservation = msa.get_kl_divergence()
         # Get conservation shape
         m = len(conservation)
         # Test conservation
         self.assertEqual(m, 11, 'There should be 11 aligned positions')
-        self.assertAlmostEqual(conservation[2], 5.812, 3, 'Should be equal to 5.781')
-        self.assertAlmostEqual(conservation[8], 3.395, 3, 'Should be equal to 3.395')
+        self.assertAlmostEqual(conservation[2], 2.742, 3, 'Should be equal to 2.742')
+        self.assertAlmostEqual(conservation[8], 1.624, 3, 'Should be equal to 1.624')
 
     # Test Shannon entropy on small sample alignment
     def test_get_shannon_entropy(self):

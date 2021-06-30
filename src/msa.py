@@ -4,7 +4,53 @@ import pandas as pd
 import numpy as np
 import json
 import sys
+import os
 import re
+import io
+
+
+# Define path to data folder
+DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data')
+
+
+class FrequencyTable(dict):
+
+    @classmethod
+    def parse_file(cls, file):
+        # Initialize frequencies dictionary
+        frequencies = dict()
+        # Loop through each line in given file
+        for line in file:
+            # Skip comment lines
+            if re.match(r'^#', line):
+                continue
+            # Split line by whitespace
+            parts = re.split(r'[\s\n]+', line)
+            # Get residue and its frequency
+            code, freq = str(parts[0]), float(parts[1])
+            # Store frequency associated to residue
+            frequencies.setdefault(code, freq)
+        # Return frequencies dictionary
+        return cls(frequencies)
+
+    @classmethod
+    def load_file(cls, path_or_handler):
+        # Check if input is path or file handler
+        is_path = isinstance(path_or_handler, str)
+        # Eventually, open file handler
+        handler = open(path_or_handler, 'r') if is_path else path_or_handler
+        # Parse frequency table from file
+        frequencies = cls.parse_file(file=handler)
+        # Eventually, close file handler
+        if is_path: handler.close()
+        # Return frequency table
+        return frequencies
+
+
+# Initialize UniProt/SwissProt frequency table
+expected_sp = FrequencyTable.load_file(os.path.join(DATA_PATH, 'frequencies', 'swissprot_2021_02.txt'))
+# Initialize UniProt/TrEMBL frequency table
+expected_tr = FrequencyTable.load_file(os.path.join(DATA_PATH, 'frequencies', 'trembl_2021_02.txt'))
 
 
 class MSA(object):
@@ -57,10 +103,7 @@ class MSA(object):
     FORMAT_STH = 'stockholm'
 
     # (Static) Available amino-acids
-    ALL_RESIDUES = np.char.array(list('ACDEFGHIKLMNPQRSTVWY'), itemsize=1, unicode=False)
-
-    # (Static) Path to file containing amino acid frequencies
-    FREQUENCIES_PATH = './data/freqs_tr_2021_02.json'
+    ALL_RESIDUES = np.array(list('ACDEFGHIKLMNPQRSTVWY'), dtype=np.string_)
      
     # Constructor
     def __init__(self, accession, begin, end, residues):
@@ -69,27 +112,48 @@ class MSA(object):
         self.begin = begin
         self.end = end
         self.residues = residues
-        # Open file containing amino acid frequencies
-        with open(self.FREQUENCIES_PATH) as file:
-            # Load amino acid frequencies
-            self.frequencies = {
-                residue_code.encode(): residue_freq
-                for residue_code, residue_freq
-                in json.load(file).items()
-                if residue_code.encode() in self.ALL_RESIDUES
-            }
 
     @property
     def acc(self):
         return self.accession
 
+    # Return case sensitive alignment matrix
     @property
-    def res(self):
+    def r(self):
         return self.residues
+
+    # Return case insensitive alignment matrix
+    @property
+    def R(self):
+        return np.char.upper(self.r)
 
     @property
     def shape(self):
-        return self.res.shape
+        return self.r.shape
+
+    def get_logo(self):
+        # Get number of reisdues
+        p = len(self.ALL_RESIDUES)
+        # Get shape of current alignment
+        n, m = self.shape
+        # Initialize logo as numpy array
+        logo = np.zeros(shape=(p + 1, m), dtype=np.float)
+        # Loop through each available residue
+        for i, residue_byte in enumerate(self.ALL_RESIDUES):
+            # Get occurrencies for current residues in each column
+            logo[i, :] = np.sum(self.R == residue_byte, axis=0)
+        # Compute gaps as difference between total and counted occurrencies
+        logo[-1, :] = n - np.sum(logo[:p, :], axis=0)
+        # Return logo
+        return logo
+
+    def get_frequencies(self):
+        # Get logo of current alignment
+        logo = self.get_logo()
+        # Get shape of the alignment
+        n, _ = self.shape
+        # Compute and return frequencies
+        return logo / n
 
     def get_occupancy(self):
         """ Compute occupancy
@@ -105,22 +169,24 @@ class MSA(object):
         # Compute occupancy as fraction of non-gap aligned residues
         return num / den
 
-    def get_conservation(self, b=2):
-        return self.get_kl_divergence(b=b)
+    def get_conservation(self, *args, **kwargs):
+        return self.get_kl_divergence(*args, **kwargs)
 
-    def get_kl_divergence(self, b=2):
+    def get_kl_divergence(self, expected=expected_sp, b=2):
         # Get alignment shape
         _, m = self.shape
         # Initialize Kullback-Leibler divergence
         conservation = np.zeros(shape=(m, ), dtype=np.float)
         # Get observed and expected amino-acid frequencies
-        observed, expected = self.get_frequencies(), self.frequencies
+        observed = self.get_frequencies()
         # Loop trhough each amino acid
-        for i, residue_code in enumerate(self.ALL_RESIDUES):
-            # Get current odds, exclude cases where logarithm is zero
-            odds = np.where(observed[i, :] > 0, observed[i, :] / expected[residue_code], 1)
-            # Update conservation
-            conservation += observed[i, :] * (np.log(odds) / np.log(b))
+        for i, residue_byte in enumerate(self.ALL_RESIDUES):
+            # Cast residue byte to UTF-8
+            residue_utf8 = residue_byte.decode('utf-8')
+            # Get current log odds, exclude cases where logarithm is zero
+            log_odds = np.log(np.where(observed[i, :] > 0, observed[i, :] / expected[residue_utf8], 1))
+            # Update conservation, eventually change logarithm base
+            conservation += observed[i, :] * (log_odds / np.log(b))
         # Return Kullback-Leibler divergence
         return conservation
 
@@ -133,36 +199,12 @@ class MSA(object):
         conservation = np.zeros(shape=(m, ), dtype=np.float)
         # Loop trhough each amino acid
         for i, _ in enumerate(self.ALL_RESIDUES):
-            # Compute logarithm multiplier
-            frequencies = np.where(observed[i, :] > 0, observed[i, :], 1)
+            # Compute frequencies
+            freq = np.where(observed[i, :] > 0, observed[i, :], 1)
             # Update conservation
-            conservation -= frequencies * (np.log(frequencies) / np.log(b))
+            conservation -= freq * (np.log(freq) / np.log(b))
         # Return Kullback-Leibler divergence
         return conservation
-
-    def get_logo(self):
-        # Get number of reisdues
-        p = len(self.ALL_RESIDUES)
-        # Get shape of current alignment
-        n, m = self.shape
-        # Initialize logo as numpy array
-        logo = np.zeros(shape=(p + 1, m), dtype=np.float)
-        # Loop through each available residue
-        for i, residue_code in enumerate(self.ALL_RESIDUES):
-            # Get occurrencies for current residues in each column
-            logo[i, :] = np.sum(self.residues == residue_code, axis=0)
-        # Compute gaps as difference between total and counted occurrencies
-        logo[-1, :] = n - np.sum(logo[:p, :], axis=0)
-        # Return logo
-        return logo
-
-    def get_frequencies(self):
-        # Get logo of current alignment
-        logo = self.get_logo()
-        # Get shape of the alignment
-        n, _ = self.shape
-        # Compute and return frequencies
-        return logo / n
 
     def to_numpy(self):
         # Cast attributes to numpy
@@ -219,10 +261,9 @@ class MSA(object):
             residues.append(sequence)
             # Define shape of the residues matrix
             shape = n, m = n + 1, len(sequence)
-        # Cast residues to matrix of characters
-        residues = np.char.array(residues, itemsize=1, unicode=False)
-        # Reshape matrix to shape
-        residues = residues.reshape(shape)
+        # Cast residues to matrix of characters (bytes)
+        # NOTE that np.string_ is an alias of np.bytes_
+        residues = np.array(residues, np.string_).reshape(shape)
         # Return parsed alignment
         return cls(accession, begin, end, residues)
 
@@ -247,9 +288,17 @@ class MSA(object):
     def load_sth(cls, file_or_path):
         return cls.load_file(file_or_path, cls.FORMAT_STH)
 
+    @staticmethod
+    def is_gap(residues):
+        return np.isin(residues, {b' ', b'-', b'.'})
+
 
 # Example
 if __name__ == '__main__':
+
+    # Print path to data folder
+    print('Path to data folder is %s' % DATA_PATH)
+
     # Define path to example alignment in FASTA format
     path = 'data/sample.afa'
     # Load alignment from FASTA file
@@ -258,8 +307,13 @@ if __name__ == '__main__':
     print('Alignment has shape %s' % str(msa.shape))
 
     # Define both unicode and bytes matrices
-    res_utf8 = np.char.array(msa.res, itemsize=1, unicode=True)
-    res_bytes = np.char.array(msa.res, itemsize=1, unicode=False)
+    res_utf8 = np.array(msa.r, dtype=np.unicode_)
+    # Check first UTF-8 encoded line
+    print('First line (UTF-8 encoded): %s' % str(res_utf8[0, :10]))
+    # res_utf8 = np.char.array(msa.res, itemsize=1, unicode=True)
+    res_bytes = np.array(msa.r, dtype=np.string_)
+    # Check first byte encoded line
+    print('First line (byte encoded): %s' % str(res_bytes[0, :10]))
     # Check alignment size in memory
     print('Alignment (utf-8) has size %.02f' % (sys.getsizeof(res_utf8) / 1e06))
     print('Alignment (bytes) has size %.02f' % (sys.getsizeof(res_bytes) / 1e06))
