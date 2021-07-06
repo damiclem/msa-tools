@@ -290,7 +290,7 @@ class MSA(object):
 
     @staticmethod
     def is_gap(residues):
-        return np.isin(residues, {b' ', b'-', b'.'})
+        return np.isin(residues, [b' ', b'-', b'.'])
 
 
 # Example
